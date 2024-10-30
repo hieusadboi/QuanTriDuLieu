@@ -20,8 +20,8 @@ CREATE TABLE HocSinh (
     hs_ngaySinh DATE,
     hs_diaChi VARCHAR(100),
     hs_sdtPhuHuynh VARCHAR(15),
-    l_maLop VARCHAR(10),
-    FOREIGN KEY (l_maLop) REFERENCES Lop(l_maLop)
+    l_maLop VARCHAR(10) ,-- PRIMARY KEY này cũng là khóa chính
+	FOREIGN KEY (l_maLop) REFERENCES Lop(l_maLop)
 );
 
 CREATE TABLE ChuNhiem (
@@ -556,6 +556,7 @@ END //
 
 DELIMITER ;
 
+use doanbackup
 -- hàm tính điểm trung bình của một môn
 DELIMITER //
 
@@ -568,13 +569,13 @@ CREATE FUNCTION tinhDiemTrungBinh(
 DETERMINISTIC
 BEGIN
     DECLARE diemTrungBinh FLOAT;
-    SET diemTrungBinh = (diemMieng + diem15Phut + diem1Tiet + diemThi) / 4;
+    SET diemTrungBinh = (diemMieng + diem15Phut + diem1Tiet*2 + diemThi*3) / 7;
     RETURN diemTrungBinh;
-END //
+END//
 
 DELIMITER ;
 
--- inDiemTrungBinhTheoNamHoc
+-- inDiemTrungBinhTheoNamHoc cho từng môn học.
 DELIMITER //
 
 CREATE PROCEDURE inDiemTrungBinhTheoNamHoc(
@@ -582,50 +583,78 @@ CREATE PROCEDURE inDiemTrungBinhTheoNamHoc(
     IN p_namHoc VARCHAR(10)
 )
 BEGIN
-    SELECT mh.mh_tenMonHoc AS MonHoc, 
+    DECLARE p_namHoc_sau INT;
+    DECLARE p_maLop VARCHAR(10);
+    DECLARE p_khoi VARCHAR(2);
+
+    -- Tách năm sau từ p_namHoc (ví dụ: "2023-2024" -> 2024)
+    SET p_namHoc_sau = CAST(SUBSTRING_INDEX(p_namHoc, '-', -1) AS UNSIGNED);
+
+    -- Truy xuất mã lớp dựa trên mã học sinh và năm học
+    SELECT hs.l_maLop 
+    INTO p_maLop
+    FROM HocSinh hs
+    JOIN ChuNhiem cn ON hs.l_maLop = cn.l_maLop
+    WHERE hs.hs_maHS = p_hs_maHS
+      AND cn.cn_namHoc = p_namHoc;
+
+    -- Lấy khối từ mã lớp (2 ký tự đầu của mã lớp)
+    SET p_khoi = LEFT(p_maLop, 2);
+
+    -- Truy xuất điểm trung bình theo năm học và khối lớp
+    SELECT mh.mh_tenMonHoc AS MonHoc,
            tinhDiemTrungBinh(d.d_diemMieng, d.d_diem15Phut, d.d_diem1Tiet, d.d_diemThi) AS DiemTrungBinh
     FROM Diem d
     JOIN MonHoc mh ON d.mh_maMonHoc = mh.mh_maMonHoc
-    JOIN HocSinh hs ON d.hs_maHS = hs.hs_maHS
-    JOIN ChuNhiem cn ON hs.l_maLop = cn.l_maLop
     WHERE d.hs_maHS = p_hs_maHS
-      AND cn.cn_namHoc = p_namHoc;
+      AND mh.mh_khoi = p_khoi;
 END //
 
 DELIMITER ;
 
---
+
+-- tính điểm trung bình cả năm theo mã hs và niên khóa
 
 DELIMITER //
 
-CREATE PROCEDURE tinhDiemTrungBinhCaNam(
-    IN p_hs_maHS VARCHAR(10),
-    IN p_namHoc VARCHAR(10)
-)
+CREATE FUNCTION tinhDiemTrungBinhCaNam(
+    p_hs_maHS VARCHAR(10),
+    p_namHoc VARCHAR(10)
+) RETURNS FLOAT
+    DETERMINISTIC
 BEGIN
-    DECLARE tongDiem FLOAT DEFAULT 0;
-    DECLARE soMonHoc INT DEFAULT 0;
-    DECLARE diemTrungBinhNamHoc FLOAT;
+    DECLARE p_namHoc_sau INT;
+    DECLARE p_maLop VARCHAR(10);
+    DECLARE p_khoi VARCHAR(2);
+    DECLARE diemTrungBinhCaNam FLOAT;
 
-    -- Calculate total score and count of subjects
-    SELECT SUM(tinhDiemTrungBinh(d.d_diemMieng, d.d_diem15Phut, d.d_diem1Tiet, d.d_diemThi)), 
-           COUNT(*)
-    INTO tongDiem, soMonHoc
-    FROM Diem d
-    JOIN MonHoc mh ON d.mh_maMonHoc = mh.mh_maMonHoc
-    JOIN HocSinh hs ON d.hs_maHS = hs.hs_maHS
+    -- Tách năm sau từ p_namHoc (ví dụ: "2023-2024" -> 2024)
+    SET p_namHoc_sau = CAST(SUBSTRING_INDEX(p_namHoc, '-', -1) AS UNSIGNED);
+
+    -- Truy xuất mã lớp của học sinh dựa trên mã học sinh và năm học (các ký tự cuối của mã lớp trùng với năm học)
+    SELECT hs.l_maLop 
+    INTO p_maLop
+    FROM HocSinh hs
     JOIN ChuNhiem cn ON hs.l_maLop = cn.l_maLop
-    WHERE d.hs_maHS = p_hs_maHS
+    WHERE hs.hs_maHS = p_hs_maHS
       AND cn.cn_namHoc = p_namHoc;
 
-    -- Calculate average score for the year
-    SET diemTrungBinhNamHoc = IF(soMonHoc > 0, tongDiem / soMonHoc, NULL);
+    -- Lấy khối từ mã lớp (2 ký tự đầu của mã lớp)
+    SET p_khoi = LEFT(p_maLop, 2);
 
-    -- Display the result
-    SELECT p_hs_maHS AS MaHocSinh, p_namHoc AS NamHoc, diemTrungBinhNamHoc AS DiemTrungBinhCaNam;
+    -- Tính điểm trung bình cả năm
+    SELECT ROUND(SUM(tinhDiemTrungBinh(d.d_diemMieng, d.d_diem15Phut, d.d_diem1Tiet, d.d_diemThi)) / COUNT(*), 2)
+    INTO diemTrungBinhCaNam
+    FROM Diem d
+    JOIN MonHoc mh ON d.mh_maMonHoc = mh.mh_maMonHoc
+    WHERE d.hs_maHS = p_hs_maHS
+      AND mh.mh_khoi = p_khoi;
+
+    RETURN diemTrungBinhCaNam;
 END //
 
 DELIMITER ;
+use doanbackup
 
 -- 
 DELIMITER //
@@ -635,66 +664,72 @@ CREATE PROCEDURE inDanhSachXepLoaiCaNam(
     IN p_namHoc VARCHAR(10)
 )
 BEGIN
-    DECLARE diemTrungBinhNamHoc FLOAT;
-    
-    -- Select list of students with their average score and classification
     SELECT hs.hs_maHS AS MaHocSinh,
            hs.hs_hoTen AS HoTen,
-           ROUND(AVG(tinhDiemTrungBinh(d.d_diemMieng, d.d_diem15Phut, d.d_diem1Tiet, d.d_diemThi)), 2) AS DiemTrungBinhCaNam,
+           tinhDiemTrungBinhCaNam(hs.hs_maHS, p_namHoc) AS DiemTrungBinhCaNam,
            CASE
-               WHEN AVG(tinhDiemTrungBinh(d.d_diemMieng, d.d_diem15Phut, d.d_diem1Tiet, d.d_diemThi)) >= 9 THEN 'Xuẩt Sắc'
-                WHEN AVG(tinhDiemTrungBinh(d.d_diemMieng, d.d_diem15Phut, d.d_diem1Tiet, d.d_diemThi)) >= 8 THEN 'Giỏi'
-                WHEN AVG(tinhDiemTrungBinh(d.d_diemMieng, d.d_diem15Phut, d.d_diem1Tiet, d.d_diemThi)) >= 6.5 THEN 'Khá'
-                WHEN AVG(tinhDiemTrungBinh(d.d_diemMieng, d.d_diem15Phut, d.d_diem1Tiet, d.d_diemThi)) >= 5 THEN 'Trung Bình'
-                ELSE 'Yếu'
+               WHEN tinhDiemTrungBinhCaNam(hs.hs_maHS, p_namHoc) >= 9 THEN 'Xuất Sắc'
+               WHEN tinhDiemTrungBinhCaNam(hs.hs_maHS, p_namHoc) >= 8 THEN 'Giỏi'
+               WHEN tinhDiemTrungBinhCaNam(hs.hs_maHS, p_namHoc) >= 6.5 THEN 'Khá'
+               WHEN tinhDiemTrungBinhCaNam(hs.hs_maHS, p_namHoc) >= 5 THEN 'Trung Bình'
+               When tinhDiemTrungBinhCaNam(hs.hs_maHS, p_namHoc) >=3.5 THEN 'Yếu'
+               When tinhDiemTrungBinhCaNam(hs.hs_maHS, p_namHoc) >=0 THEN 'Kém'
+               ELSE 'No DATA'
            END AS XepLoai
-    FROM Diem d
-    JOIN HocSinh hs ON d.hs_maHS = hs.hs_maHS
+    FROM HocSinh hs
     JOIN ChuNhiem cn ON hs.l_maLop = cn.l_maLop
     WHERE hs.l_maLop = p_maLop
-      AND cn.cn_namHoc = p_namHoc
-    GROUP BY hs.hs_maHS;
+      AND cn.cn_namHoc = p_namHoc;
 END //
 
 DELIMITER ;
 
+
+
 -- hàm in tỷ lệ xếp loại
 DELIMITER //
 
-CREATE PROCEDURE thongKeTyLeXepLoai(
+CREATE PROCEDURE inTyLeXepLoaiCaNam(
     IN p_maLop VARCHAR(10),
     IN p_namHoc VARCHAR(10)
 )
 BEGIN
     DECLARE totalStudents INT;
-
-    -- Get the total number of students in the class and year
+    
+    -- Tính tổng số học sinh trong lớp
     SELECT COUNT(*) INTO totalStudents
     FROM HocSinh hs
     JOIN ChuNhiem cn ON hs.l_maLop = cn.l_maLop
     WHERE hs.l_maLop = p_maLop
       AND cn.cn_namHoc = p_namHoc;
-
-    -- Calculate and display the percentage of students in each category
-    SELECT XepLoai,
-           COUNT(*) AS SoLuong,
-           ROUND(COUNT(*) * 100 / totalStudents, 2) AS TyLePhanTram
+    
+    -- In tỷ lệ xếp loại học sinh
+    SELECT 
+        CASE
+            WHEN xepLoai = 'Xuất Sắc' THEN 'Xuất Sắc'
+            WHEN xepLoai = 'Giỏi' THEN 'Giỏi'
+            WHEN xepLoai = 'Khá' THEN 'Khá'
+            WHEN xepLoai = 'Trung Bình' THEN 'Trung Bình'
+            WHEN xepLoai = 'Yếu' THEN 'Yếu'
+            ELSE 'Kém'
+        END AS XepLoai,
+        COUNT(*) AS SoLuong,
+        ROUND((COUNT(*) / totalStudents) * 100, 2) AS TyLePhanTram
     FROM (
-        SELECT 
-            CASE
-                WHEN AVG(tinhDiemTrungBinh(d.d_diemMieng, d.d_diem15Phut, d.d_diem1Tiet, d.d_diemThi)) >= 9 THEN 'Xuẩt Sắc'
-                WHEN AVG(tinhDiemTrungBinh(d.d_diemMieng, d.d_diem15Phut, d.d_diem1Tiet, d.d_diemThi)) >= 8 THEN 'Giỏi'
-                WHEN AVG(tinhDiemTrungBinh(d.d_diemMieng, d.d_diem15Phut, d.d_diem1Tiet, d.d_diemThi)) >= 6.5 THEN 'Khá'
-                WHEN AVG(tinhDiemTrungBinh(d.d_diemMieng, d.d_diem15Phut, d.d_diem1Tiet, d.d_diemThi)) >= 5 THEN 'Trung Bình'
-                ELSE 'Yếu'
-            END AS XepLoai
-        FROM Diem d
-        JOIN HocSinh hs ON d.hs_maHS = hs.hs_maHS
+        SELECT hs.hs_maHS AS MaHocSinh,
+               CASE
+                   WHEN tinhDiemTrungBinhCaNam(hs.hs_maHS, p_namHoc) >= 9 THEN 'Xuất Sắc'
+                   WHEN tinhDiemTrungBinhCaNam(hs.hs_maHS, p_namHoc) >= 8 THEN 'Giỏi'
+                   WHEN tinhDiemTrungBinhCaNam(hs.hs_maHS, p_namHoc) >= 6.5 THEN 'Khá'
+                   WHEN tinhDiemTrungBinhCaNam(hs.hs_maHS, p_namHoc) >= 5 THEN 'Trung Bình'
+                   WHEN tinhDiemTrungBinhCaNam(hs.hs_maHS, p_namHoc) >= 3.5 THEN 'Yếu'
+                   ELSE 'Kém'
+               END AS xepLoai
+        FROM HocSinh hs
         JOIN ChuNhiem cn ON hs.l_maLop = cn.l_maLop
         WHERE hs.l_maLop = p_maLop
           AND cn.cn_namHoc = p_namHoc
-        GROUP BY hs.hs_maHS
-    ) AS XepLoaiTable
+    ) AS XepLoaiHocSinh
     GROUP BY XepLoai;
 END //
 
@@ -921,7 +956,7 @@ BEGIN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để giá trị là NULL';
     END IF;
 
-    SELECT COUNT(*) INTO count_existing FROM Lop WHERE l_maLop = NEW.l_maLop AND l_maLop != OLD.l_maLop;
+    SELECT COUNT(*) INTO count_existing FROM Lop WHERE l_maLop = NEW.l_maLop;
     IF count_existing > 0 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Đã có dữ liệu này trong cơ sở dữ liệu';
     END IF;
@@ -945,7 +980,7 @@ FOR EACH ROW
 BEGIN
     DECLARE count_existing INT;
 
-    IF NEW.gv_maGV IS NULL OR NEW.gv_hoTen IS NULL OR NEW.gv_ngaySinh IS NULL OR NEW.gv_diaChi IS NULL OR NEW.gv_sdt IS NULL THEN
+    IF NEW.gv_maGV IS NULL THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để giá trị là NULL';
     END IF;
 
@@ -961,11 +996,11 @@ FOR EACH ROW
 BEGIN
     DECLARE count_existing INT;
 
-    IF NEW.gv_maGV IS NULL OR NEW.gv_hoTen IS NULL OR NEW.gv_ngaySinh IS NULL OR NEW.gv_diaChi IS NULL OR NEW.gv_sdt IS NULL THEN
+    IF NEW.gv_maGV IS NULL THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để giá trị là NULL';
     END IF;
 
-    SELECT COUNT(*) INTO count_existing FROM GiaoVien WHERE gv_maGV = NEW.gv_maGV AND gv_maGV != OLD.gv_maGV;
+    SELECT COUNT(*) INTO count_existing FROM GiaoVien WHERE gv_maGV = NEW.gv_maGV ;
     IF count_existing > 0 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Đã có dữ liệu này trong cơ sở dữ liệu';
     END IF;
@@ -982,6 +1017,8 @@ BEGIN
     END IF;
 END; //
 
+DELIMITER //
+
 -- Trigger cho bảng HocSinh
 CREATE TRIGGER before_insert_HocSinh
 BEFORE INSERT ON HocSinh
@@ -989,15 +1026,20 @@ FOR EACH ROW
 BEGIN
     DECLARE count_existing INT;
 
-    IF NEW.hs_maHS IS NULL OR NEW.hs_hoTen IS NULL OR NEW.hs_ngaySinh IS NULL OR NEW.hs_diaChi IS NULL OR NEW.hs_sdtPhuHuynh IS NULL OR NEW.l_maLop IS NULL THEN
+    IF NEW.hs_maHS IS NULL OR NEW.l_maLop IS NULL THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để giá trị là NULL';
     END IF;
 
-    SELECT COUNT(*) INTO count_existing FROM HocSinh WHERE hs_maHS = NEW.hs_maHS;
+    SELECT COUNT(*) INTO count_existing FROM HocSinh WHERE hs_maHS = NEW.hs_maHS and l_maLop = NEW.l_maLop;
     IF count_existing > 0 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Đã có dữ liệu này trong cơ sở dữ liệu';
     END IF;
 END; //
+
+DELIMITER ;
+
+
+DELIMITER //
 
 CREATE TRIGGER before_update_HocSinh
 BEFORE UPDATE ON HocSinh
@@ -1005,11 +1047,11 @@ FOR EACH ROW
 BEGIN
     DECLARE count_existing INT;
 
-    IF NEW.hs_maHS IS NULL OR NEW.hs_hoTen IS NULL OR NEW.hs_ngaySinh IS NULL OR NEW.hs_diaChi IS NULL OR NEW.hs_sdtPhuHuynh IS NULL OR NEW.l_maLop IS NULL THEN
+    IF NEW.hs_maHS IS NULL OR NEW.l_maLop IS NULL THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để giá trị là NULL';
     END IF;
 
-    SELECT COUNT(*) INTO count_existing FROM HocSinh WHERE hs_maHS = NEW.hs_maHS AND hs_maHS != OLD.hs_maHS;
+    SELECT COUNT(*) INTO count_existing FROM HocSinh WHERE hs_maHS = NEW.hs_maHS AND l_maLop = NEW.l_maLop;
     IF count_existing > 0 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Đã có dữ liệu này trong cơ sở dữ liệu';
     END IF;
@@ -1020,11 +1062,13 @@ BEFORE DELETE ON HocSinh
 FOR EACH ROW
 BEGIN
     DECLARE count_existing INT;
-    SELECT COUNT(*) INTO count_existing FROM HocSinh WHERE hs_maHS = OLD.hs_maHS;
+    SELECT COUNT(*) INTO count_existing FROM HocSinh WHERE hs_maHS = OLD.hs_maHS AND l_maLop = OLD.l_maLop;
     IF count_existing = 0 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không có dữ liệu này trong cơ sở dữ liệu';
     END IF;
 END; //
+
+DELIMITER //
 
 -- Trigger cho bảng ChuNhiem
 CREATE TRIGGER before_insert_ChuNhiem
@@ -1033,11 +1077,11 @@ FOR EACH ROW
 BEGIN
     DECLARE count_existing INT;
 
-    IF NEW.gv_maGV IS NULL OR NEW.l_maLop IS NULL OR NEW.cn_namHoc IS NULL THEN
+    IF NEW.gv_maGV IS NULL OR NEW.l_maLop IS NULL THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để giá trị là NULL';
     END IF;
 
-    SELECT COUNT(*) INTO count_existing FROM ChuNhiem WHERE gv_maGV = NEW.gv_maGV AND l_maLop = NEW.l_maLop AND cn_namHoc = NEW.cn_namHoc;
+    SELECT COUNT(*) INTO count_existing FROM ChuNhiem WHERE gv_maGV = NEW.gv_maGV AND l_maLop = NEW.l_maLop;
     IF count_existing > 0 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Đã có dữ liệu này trong cơ sở dữ liệu';
     END IF;
@@ -1049,11 +1093,11 @@ FOR EACH ROW
 BEGIN
     DECLARE count_existing INT;
 
-    IF NEW.gv_maGV IS NULL OR NEW.l_maLop IS NULL OR NEW.cn_namHoc IS NULL THEN
+    IF NEW.gv_maGV IS NULL OR NEW.l_maLop IS NULL THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để giá trị là NULL';
     END IF;
 
-    SELECT COUNT(*) INTO count_existing FROM ChuNhiem WHERE gv_maGV = NEW.gv_maGV AND l_maLop = NEW.l_maLop AND cn_namHoc = NEW.cn_namHoc AND (gv_maGV != OLD.gv_maGV OR l_maLop != OLD.l_maLop OR cn_namHoc != OLD.cn_namHoc);
+    SELECT COUNT(*) INTO count_existing FROM ChuNhiem WHERE gv_maGV = NEW.gv_maGV AND l_maLop = NEW.l_maLop  AND (gv_maGV != OLD.gv_maGV OR l_maLop != OLD.l_maLop );
     IF count_existing > 0 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Đã có dữ liệu này trong cơ sở dữ liệu';
     END IF;
@@ -1064,7 +1108,7 @@ BEFORE DELETE ON ChuNhiem
 FOR EACH ROW
 BEGIN
     DECLARE count_existing INT;
-    SELECT COUNT(*) INTO count_existing FROM ChuNhiem WHERE gv_maGV = OLD.gv_maGV AND l_maLop = OLD.l_maLop AND cn_namHoc = OLD.cn_namHoc;
+    SELECT COUNT(*) INTO count_existing FROM ChuNhiem WHERE gv_maGV = OLD.gv_maGV AND l_maLop = OLD.l_maLop ;
     IF count_existing = 0 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không có dữ liệu này trong cơ sở dữ liệu';
     END IF;
@@ -1097,7 +1141,7 @@ BEGIN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để giá trị là NULL';
     END IF;
 
-    SELECT COUNT(*) INTO count_existing FROM PhongHoc WHERE p_maPhong = NEW.p_maPhong AND p_maPhong != OLD.p_maPhong;
+    SELECT COUNT(*) INTO count_existing FROM PhongHoc WHERE p_maPhong = NEW.p_maPhong ;
     IF count_existing > 0 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Đã có dữ liệu này trong cơ sở dữ liệu';
     END IF;
@@ -1257,8 +1301,7 @@ BEGIN
     IF NEW.d_diemMieng < 0 OR NEW.d_diemMieng > 10 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Điểm miệng phải nằm trong khoảng từ 0 đến 10';
     END IF;
-
-    IF NEW.d_diem15Phut < 0 OR NEW.d_diem15Phut > 10 THEN
+   IF NEW.d_diem15Phut < 0 OR NEW.d_diem15Phut > 10 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Điểm 15 phút phải nằm trong khoảng từ 0 đến 10';
     END IF;
 
@@ -1295,8 +1338,7 @@ END; //
 
 DELIMITER ;
 
-INSERT INTO Diem (hs_maHS, mh_maMonHoc, d_diemMieng, d_diem15Phut, d_diem1Tiet, d_diemThi)
-VALUES ('HS001', 'MH002', 8.5, 9.0, 7.0, 10.0);
+
 
 -- Xóa thủ tục Add cho bảng HocSinh
 DROP PROCEDURE IF EXISTS AddHocSinh;
@@ -1394,3 +1436,4 @@ DROP PROCEDURE IF EXISTS PrintPhongLop;
 -- Xóa thủ tục Print cho bảng ChuNhiem
 DROP PROCEDURE IF EXISTS PrintChuNhiem;
 
+-- dòng 658 

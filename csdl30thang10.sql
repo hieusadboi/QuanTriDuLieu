@@ -1215,23 +1215,42 @@ DELIMITER ;
 
 
 DELIMITER //
-
 -- Trigger cho bảng Lop
 CREATE TRIGGER before_insert_Lop
 BEFORE INSERT ON Lop
 FOR EACH ROW
 BEGIN
     DECLARE count_existing INT;
+	DECLARE year_part VARCHAR(4);
+    DECLARE class_prefix VARCHAR(2);
 
-    IF NEW.l_maLop IS NULL OR NEW.l_tenLop IS NULL OR NEW.l_nienKhoa IS NULL THEN
+    IF NEW.l_maLop IS NULL OR NEW.l_nienKhoa IS NULL THEN 
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để giá trị là NULL';
     END IF;
+    
+    IF NEW.l_maLop = '' OR NEW.l_nienKhoa = '' THEN 
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để trống giá trị này!';
+	END IF;
+    
+    -- Lấy năm và tiền tố của lớp từ mã lớp
+    SET class_prefix = LEFT(NEW.l_maLop, 2);
+    SET year_part = SUBSTRING_INDEX(SUBSTRING_INDEX(NEW.l_maLop, '_', -1), '_', 1);
 
+    -- Kiểm tra mã lớp phải bắt đầu với 10, 11 hoặc 12
+    IF class_prefix NOT IN ('10', '11', '12') THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Mã lớp phải bắt đầu bằng 10, 11 hoặc 12';
+    END IF;
+
+    -- Kiểm tra niên khóa phải phù hợp với phần sau dấu gạch dưới trong mã lớp
+    IF NEW.l_nienKhoa <> CONCAT(year_part, '-', year_part + 1) THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Niên khóa không khớp với năm trong mã lớp. Vui lòng sử dụng định dạng như 2024-2025';
+    END IF;
     SELECT COUNT(*) INTO count_existing FROM Lop WHERE l_maLop = NEW.l_maLop;
     IF count_existing > 0 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Đã có dữ liệu này trong cơ sở dữ liệu';
     END IF;
 END; //
+
 
 CREATE TRIGGER before_update_Lop
 BEFORE UPDATE ON Lop
@@ -1239,8 +1258,12 @@ FOR EACH ROW
 BEGIN
     DECLARE count_existing INT;
 
-    IF NEW.l_maLop IS NULL OR NEW.l_tenLop IS NULL OR NEW.l_nienKhoa IS NULL THEN
+    IF NEW.l_maLop IS NULL OR NEW.l_nienKhoa IS NULL THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để giá trị là NULL';
+    END IF;
+    
+	IF NEW.l_maLop = '' OR NEW.l_nienKhoa = '' THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để trống giá trị này!';
     END IF;
 
     SELECT COUNT(*) INTO count_existing FROM Lop WHERE l_maLop = NEW.l_maLop;
@@ -1270,6 +1293,10 @@ BEGIN
     IF NEW.gv_maGV IS NULL THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để giá trị là NULL';
     END IF;
+    
+	IF NEW.gv_maGV = '' THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để trống giá trị này';
+    END IF;
 
     SELECT COUNT(*) INTO count_existing FROM GiaoVien WHERE gv_maGV = NEW.gv_maGV;
     IF count_existing > 0 THEN
@@ -1287,6 +1314,10 @@ BEGIN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để giá trị là NULL';
     END IF;
 
+    IF NEW.gv_maGV = '' THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để trống giá trị này';
+    END IF;
+    
     SELECT COUNT(*) INTO count_existing FROM GiaoVien WHERE gv_maGV = NEW.gv_maGV ;
     IF count_existing > 0 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Đã có dữ liệu này trong cơ sở dữ liệu';
@@ -1305,8 +1336,6 @@ BEGIN
 END; //
 
 DELIMITER //
-
--- Trigger cho bảng HocSinh
 CREATE TRIGGER before_insert_HocSinh
 BEFORE INSERT ON HocSinh
 FOR EACH ROW
@@ -1316,6 +1345,10 @@ BEGIN
     IF NEW.hs_maHS IS NULL OR NEW.l_maLop IS NULL THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để giá trị là NULL';
     END IF;
+    IF NEW.hs_maHS = '' OR NEW.l_maLop = '' THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để trống giá trị này';
+    END IF;    
+    
 
     SELECT COUNT(*) INTO count_existing FROM HocSinh WHERE hs_maHS = NEW.hs_maHS and l_maLop = NEW.l_maLop;
     IF count_existing > 0 THEN
@@ -1338,6 +1371,10 @@ BEGIN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để giá trị là NULL';
     END IF;
 
+    IF NEW.hs_maHS = '' OR NEW.l_maLop = '' THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để trống giá trị này';
+    END IF;    
+    
     SELECT COUNT(*) INTO count_existing FROM HocSinh WHERE hs_maHS = NEW.hs_maHS AND l_maLop = NEW.l_maLop;
     IF count_existing > 0 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Đã có dữ liệu này trong cơ sở dữ liệu';
@@ -1367,6 +1404,10 @@ BEGIN
     IF NEW.gv_maGV IS NULL OR NEW.l_maLop IS NULL THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để giá trị là NULL';
     END IF;
+    
+	IF NEW.gv_maGV = ''  OR NEW.l_maLop = '' THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để trống giá trị này';
+    END IF;
 
     SELECT COUNT(*) INTO count_existing FROM ChuNhiem WHERE gv_maGV = NEW.gv_maGV AND l_maLop = NEW.l_maLop;
     IF count_existing > 0 THEN
@@ -1384,6 +1425,10 @@ BEGIN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để giá trị là NULL';
     END IF;
 
+	IF NEW.gv_maGV = ''  OR NEW.l_maLop = '' THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để trống giá trị này';
+    END IF;
+    
     SELECT COUNT(*) INTO count_existing FROM ChuNhiem WHERE gv_maGV = NEW.gv_maGV AND l_maLop = NEW.l_maLop  AND (gv_maGV != OLD.gv_maGV OR l_maLop != OLD.l_maLop );
     IF count_existing > 0 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Đã có dữ liệu này trong cơ sở dữ liệu';
@@ -1411,7 +1456,11 @@ BEGIN
     IF NEW.p_maPhong IS NULL OR NEW.p_soChoToiDa IS NULL THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để giá trị là NULL';
     END IF;
-
+    
+    IF NEW.p_maPhong = '' OR NEW.p_soChoToiDa = '' THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để trống giá trị này';
+    END IF;
+    
     SELECT COUNT(*) INTO count_existing FROM PhongHoc WHERE p_maPhong = NEW.p_maPhong;
     IF count_existing > 0 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Đã có dữ liệu này trong cơ sở dữ liệu';
@@ -1426,6 +1475,10 @@ BEGIN
 
     IF NEW.p_maPhong IS NULL OR NEW.p_soChoToiDa IS NULL THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để giá trị là NULL';
+    END IF;
+    
+    IF NEW.p_maPhong = '' OR NEW.p_soChoToiDa = '' THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để trống giá trị này';
     END IF;
 
     SELECT COUNT(*) INTO count_existing FROM PhongHoc WHERE p_maPhong = NEW.p_maPhong ;
@@ -1456,6 +1509,10 @@ BEGIN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để giá trị là NULL';
     END IF;
 
+    IF NEW.pl_maPhong = '' OR NEW.l_maLop = '' OR NEW.pl_hocKyNamHoc = '' THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để trống giá trị này';
+    END IF;
+
     SELECT COUNT(*) INTO count_existing FROM PhongLop WHERE pl_maPhong = NEW.pl_maPhong AND l_maLop = NEW.l_maLop ;
     IF count_existing > 0 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Đã có dữ liệu này trong cơ sở dữ liệu';
@@ -1472,6 +1529,10 @@ BEGIN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để giá trị là NULL';
     END IF;
 
+    IF NEW.pl_maPhong = '' OR NEW.l_maLop = '' OR NEW.pl_hocKyNamHoc = '' THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để trống giá trị này';
+    END IF;
+    
     SELECT COUNT(*) INTO count_existing FROM PhongLop WHERE pl_maPhong = NEW.pl_maPhong AND l_maLop = NEW.l_maLop ;
     IF count_existing > 0 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Đã có dữ liệu này trong cơ sở dữ liệu';
@@ -1499,6 +1560,10 @@ BEGIN
     IF NEW.mh_maMonHoc IS NULL OR NEW.mh_tenMonHoc IS NULL OR NEW.mh_khoi IS NULL THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để giá trị là NULL';
     END IF;
+    
+	IF NEW.mh_maMonHoc = '' OR NEW.mh_tenMonHoc = '' OR NEW.mh_khoi = '' THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để trống giá trị này';
+    END IF;
 
     SELECT COUNT(*) INTO count_existing FROM MonHoc WHERE mh_maMonHoc = NEW.mh_maMonHoc;
     IF count_existing > 0 THEN
@@ -1514,6 +1579,10 @@ BEGIN
 
     IF NEW.mh_maMonHoc IS NULL OR NEW.mh_tenMonHoc IS NULL OR NEW.mh_khoi IS NULL THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để giá trị là NULL';
+    END IF;
+
+	IF NEW.mh_maMonHoc = '' OR NEW.mh_tenMonHoc = '' OR NEW.mh_khoi = '' THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để trống giá trị này';
     END IF;
 
     SELECT COUNT(*) INTO count_existing FROM MonHoc WHERE mh_maMonHoc = NEW.mh_maMonHoc AND mh_maMonHoc != OLD.mh_maMonHoc;
@@ -1546,6 +1615,10 @@ BEGIN
     -- Kiểm tra giá trị NULL
     IF NEW.hs_maHS IS NULL OR NEW.mh_maMonHoc IS NULL THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để giá trị là NULL';
+    END IF;
+    
+	IF NEW.hs_maHS = '' OR NEW.mh_maMonHoc = '' THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để trống giá trị này';
     END IF;
 
     -- Kiểm tra giá trị điểm
@@ -1582,6 +1655,10 @@ BEGIN
     -- Kiểm tra giá trị NULL
     IF NEW.hs_maHS IS NULL OR NEW.mh_maMonHoc IS NULL THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để giá trị là NULL';
+    END IF;
+
+	IF NEW.hs_maHS = '' OR NEW.mh_maMonHoc = '' THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không thể để trống giá trị này';
     END IF;
 
     -- Kiểm tra giá trị điểm
@@ -1834,7 +1911,4 @@ BEGIN
 END //
 
 DELIMITER ;
-
-
-
 
